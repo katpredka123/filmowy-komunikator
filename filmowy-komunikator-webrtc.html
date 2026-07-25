@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Video Call</title>
+  <script src="https://unpkg.com/peerjs@1.5.5/dist/peerjs.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #111318;
+      color: white;
+      font-family: Arial, Helvetica, sans-serif;
+    }
+    .call-screen {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+      background: #111318;
+    }
+    #remoteVideo {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      background: #090a0d;
+    }
+    #localVideo {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1);
+      background: #25282f;
+    }
+    .top-bar {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      padding: 24px 30px 90px;
+      background: linear-gradient(rgba(0,0,0,.78), transparent);
+      pointer-events: none;
+    }
+    .person-name {
+      font-size: 22px;
+      font-weight: 600;
+    }
+    .call-status {
+      margin-top: 6px;
+      font-size: 14px;
+      opacity: .85;
+    }
+    .preview {
+      position: absolute;
+      top: 28px;
+      right: 28px;
+      width: 260px;
+      height: 165px;
+      overflow: hidden;
+      border: 2px solid rgba(255,255,255,.65);
+      border-radius: 14px;
+      background: #25282f;
+      box-shadow: 0 8px 30px rgba(0,0,0,.45);
+    }
+    .preview-label {
+      position: absolute;
+      left: 10px;
+      bottom: 8px;
+      padding: 4px 8px;
+      border-radius: 6px;
+      background: rgba(0,0,0,.55);
+      font-size: 13px;
+    }
+    .setup {
+      position: absolute;
+      left: 24px;
+      bottom: 24px;
+      z-index: 5;
+      width: min(430px, calc(100vw - 48px));
+      padding: 18px;
+      border-radius: 16px;
+      background: rgba(20,22,27,.92);
+      backdrop-filter: blur(12px);
+      box-shadow: 0 10px 35px rgba(0,0,0,.4);
+    }
+    .setup-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    input {
+      min-width: 0;
+      flex: 1;
+      padding: 11px 12px;
+      border: 1px solid #555b67;
+      border-radius: 9px;
+      background: #272a31;
+      color: white;
+      font-size: 15px;
+    }
+    .copy-button, .connect-button, .start-button {
+      width: auto;
+      height: auto;
+      padding: 11px 15px;
+      border-radius: 9px;
+      font-size: 15px;
+    }
+    .your-id {
+      margin-top: 8px;
+      overflow-wrap: anywhere;
+      font-family: Consolas, monospace;
+      color: #d7dbe4;
+    }
+    .controls {
+      position: absolute;
+      left: 50%;
+      bottom: 30px;
+      transform: translateX(-50%);
+      display: none;
+      gap: 18px;
+      padding: 14px 20px;
+      border-radius: 24px;
+      background: rgba(20,22,27,.72);
+      backdrop-filter: blur(12px);
+    }
+    button {
+      width: 58px;
+      height: 58px;
+      border: none;
+      border-radius: 50%;
+      color: white;
+      background: #383c45;
+      font-size: 22px;
+      cursor: pointer;
+    }
+    button:hover { background: #4b505b; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    .end-call { background: #d93434; }
+    .end-call:hover { background: #ef4646; }
+    .hidden { display: none !important; }
+    .visible-flex { display: flex !important; }
+    .notice {
+      margin-top: 10px;
+      font-size: 13px;
+      line-height: 1.35;
+      opacity: .8;
+    }
+    @media (max-width: 700px) {
+      .preview {
+        width: 180px;
+        height: 115px;
+      }
+      .controls {
+        gap: 10px;
+        padding: 10px 14px;
+      }
+      button {
+        width: 50px;
+        height: 50px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="call-screen">
+    <video id="remoteVideo" autoplay playsinline></video>
+
+    <div class="top-bar">
+      <div class="person-name" id="personName">Rozmówca</div>
+      <div class="call-status">
+        <span id="status">Uruchom kamerę</span>
+        <span id="timerWrap" class="hidden"> · <span id="timer">00:00</span></span>
+      </div>
+    </div>
+
+    <div class="preview">
+      <video id="localVideo" autoplay playsinline muted></video>
+      <div class="preview-label">Ty</div>
+    </div>
+
+    <div class="setup" id="setup">
+      <button class="start-button" id="startButton">Uruchom kamerę i mikrofon</button>
+
+      <div id="connectionPanel" class="hidden">
+        <div class="your-id">Twój identyfikator: <strong id="myId">łączenie…</strong></div>
+        <div class="setup-row">
+          <button class="copy-button" id="copyButton">Kopiuj ID</button>
+        </div>
+
+        <div class="setup-row">
+          <input id="peerIdInput" type="text" placeholder="Wpisz ID drugiej osoby">
+          <button class="connect-button" id="connectButton">Połącz</button>
+        </div>
+        <div class="notice">
+          Jedna osoba wysyła swoje ID, a druga wpisuje je i klika „Połącz”.
+          Osoba odbierająca nie musi niczego zatwierdzać.
+        </div>
+      </div>
+    </div>
+
+    <div class="controls" id="controls">
+      <button id="microphoneButton" title="Mikrofon">🎙</button>
+      <button id="cameraButton" title="Kamera">📹</button>
+      <button id="fullscreenButton" title="Pełny ekran">⛶</button>
+      <button id="endButton" class="end-call" title="Zakończ">☎</button>
+    </div>
+  </div>
+
+  <script>
+    const remoteVideo = document.getElementById("remoteVideo");
+    const localVideo = document.getElementById("localVideo");
+    const startButton = document.getElementById("startButton");
+    const connectionPanel = document.getElementById("connectionPanel");
+    const setup = document.getElementById("setup");
+    const myId = document.getElementById("myId");
+    const peerIdInput = document.getElementById("peerIdInput");
+    const connectButton = document.getElementById("connectButton");
+    const copyButton = document.getElementById("copyButton");
+    const controls = document.getElementById("controls");
+    const statusText = document.getElementById("status");
+    const timerWrap = document.getElementById("timerWrap");
+    const timer = document.getElementById("timer");
+    const microphoneButton = document.getElementById("microphoneButton");
+    const cameraButton = document.getElementById("cameraButton");
+    const fullscreenButton = document.getElementById("fullscreenButton");
+    const endButton = document.getElementById("endButton");
+
+    let localStream = null;
+    let peer = null;
+    let activeCall = null;
+    let timerInterval = null;
+    let seconds = 0;
+
+    function updateStatus(text) {
+      statusText.textContent = text;
+    }
+
+    function startTimer() {
+      clearInterval(timerInterval);
+      seconds = 0;
+      timer.textContent = "00:00";
+      timerWrap.classList.remove("hidden");
+
+      timerInterval = setInterval(() => {
+        seconds += 1;
+        const minutes = String(Math.floor(seconds / 60)).padStart(2, "0");
+        const remainingSeconds = String(seconds % 60).padStart(2, "0");
+        timer.textContent = `${minutes}:${remainingSeconds}`;
+      }, 1000);
+    }
+
+    function stopTimer() {
+      clearInterval(timerInterval);
+      timerInterval = null;
+      timerWrap.classList.add("hidden");
+    }
+
+    function showRemoteStream(stream) {
+      remoteVideo.srcObject = stream;
+      updateStatus("Połączenie zabezpieczone");
+      setup.classList.add("hidden");
+      controls.classList.add("visible-flex");
+      startTimer();
+    }
+
+    function attachCallEvents(call) {
+      activeCall = call;
+
+      call.on("stream", showRemoteStream);
+
+      call.on("close", () => {
+        endCurrentCall(false);
+        alert("Rozmowa została zakończona.");
+      });
+
+      call.on("error", (error) => {
+        console.error(error);
+        updateStatus("Błąd połączenia");
+      });
+    }
+
+    async function startMedia() {
+      try {
+        localStream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+            facingMode: "user"
+          },
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          }
+        });
+
+        localVideo.srcObject = localStream;
+        startButton.classList.add("hidden");
+        connectionPanel.classList.remove("hidden");
+        updateStatus("Gotowa do połączenia");
+
+        peer = new Peer();
+
+        peer.on("open", (id) => {
+          myId.textContent = id;
+        });
+
+        peer.on("call", (incomingCall) => {
+          if (activeCall) {
+            incomingCall.close();
+            return;
+          }
+
+          updateStatus("Łączenie…");
+          incomingCall.answer(localStream);
+          attachCallEvents(incomingCall);
+        });
+
+        peer.on("error", (error) => {
+          console.error(error);
+
+          if (error.type === "peer-unavailable") {
+            alert("Nie znaleziono takiego identyfikatora. Sprawdź, czy druga osoba ma otwartą stronę.");
+          } else {
+            alert("Nie udało się zestawić połączenia: " + error.type);
+          }
+
+          updateStatus("Gotowa do połączenia");
+        });
+      } catch (error) {
+        console.error(error);
+        alert("Nie udało się uruchomić kamery lub mikrofonu. Sprawdź uprawnienia przeglądarki.");
+      }
+    }
+
+    function callPeer() {
+      const destinationId = peerIdInput.value.trim();
+
+      if (!peer || !localStream) {
+        alert("Najpierw uruchom kamerę i mikrofon.");
+        return;
+      }
+
+      if (!destinationId) {
+        alert("Wpisz identyfikator drugiej osoby.");
+        return;
+      }
+
+      updateStatus("Łączenie…");
+      const outgoingCall = peer.call(destinationId, localStream);
+      attachCallEvents(outgoingCall);
+    }
+
+    function endCurrentCall(closeCall = true) {
+      if (closeCall && activeCall) {
+        activeCall.close();
+      }
+
+      activeCall = null;
+      remoteVideo.srcObject = null;
+      stopTimer();
+      setup.classList.remove("hidden");
+      controls.classList.remove("visible-flex");
+      updateStatus("Gotowa do połączenia");
+    }
+
+    startButton.addEventListener("click", startMedia);
+    connectButton.addEventListener("click", callPeer);
+
+    peerIdInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") callPeer();
+    });
+
+    copyButton.addEventListener("click", async () => {
+      const id = myId.textContent;
+      if (!id || id === "łączenie…") return;
+
+      try {
+        await navigator.clipboard.writeText(id);
+        copyButton.textContent = "Skopiowano";
+        setTimeout(() => copyButton.textContent = "Kopiuj ID", 1500);
+      } catch {
+        alert("Skopiuj identyfikator ręcznie: " + id);
+      }
+    });
+
+    cameraButton.addEventListener("click", () => {
+      if (!localStream) return;
+      const track = localStream.getVideoTracks()[0];
+      if (!track) return;
+
+      track.enabled = !track.enabled;
+      cameraButton.textContent = track.enabled ? "📹" : "🚫";
+    });
+
+    microphoneButton.addEventListener("click", () => {
+      if (!localStream) return;
+      const track = localStream.getAudioTracks()[0];
+      if (!track) return;
+
+      track.enabled = !track.enabled;
+      microphoneButton.textContent = track.enabled ? "🎙" : "🔇";
+    });
+
+    fullscreenButton.addEventListener("click", async () => {
+      try {
+        if (!document.fullscreenElement) {
+          await document.documentElement.requestFullscreen();
+        } else {
+          await document.exitFullscreen();
+        }
+      } catch (error) {
+        console.error(error);
+      }
+    });
+
+    endButton.addEventListener("click", () => endCurrentCall(true));
+
+    window.addEventListener("beforeunload", () => {
+      if (activeCall) activeCall.close();
+      if (peer) peer.destroy();
+      if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+      }
+    });
+  </script>
+</body>
+</html>
